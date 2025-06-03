@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Search, MapPin, Star, TrendingUp, Clock, Users, Shield, Award, Target, Lightbulb, ThumbsUp, Meh, ThumbsDown, CheckCircle, AlertCircle, Info } from 'lucide-react';
+import { Search, MapPin, Star, TrendingUp, Clock, Users, Shield, Award, Target, Lightbulb, ThumbsUp, Meh, ThumbsDown, CheckCircle, AlertCircle, Info, Navigation } from 'lucide-react';
 
 const TruthTable = () => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [location, setLocation] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [selectedRestaurant, setSelectedRestaurant] = useState(null);
   const [loading, setLoading] = useState(false);
   const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [locationLoading, setLocationLoading] = useState(false);
   const [aggregatedScore, setAggregatedScore] = useState(null);
   const [searchInsights, setSearchInsights] = useState(null);
   const [filters, setFilters] = useState({
@@ -15,9 +17,84 @@ const TruthTable = () => {
     sortBy: 'smart'
   });
 
-  // Handle search with enhanced API
+  // Auto-detect user's location on component mount
+  useEffect(() => {
+    detectUserLocation();
+  }, []);
+
+  // Detect user's current location
+  const detectUserLocation = async () => {
+    setLocationLoading(true);
+    
+    // Try browser geolocation first
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          try {
+            // Reverse geocode to get city, state
+            const response = await fetch(
+              `https://api.opencagedata.com/geocode/v1/json?q=${position.coords.latitude}+${position.coords.longitude}&key=YOUR_API_KEY`
+            );
+            const data = await response.json();
+            
+            if (data.results && data.results[0]) {
+              const result = data.results[0];
+              const city = result.components.city || result.components.town || result.components.village;
+              const state = result.components.state_code || result.components.state;
+              const country = result.components.country_code;
+              
+              if (city && state && country === 'US') {
+                setLocation(`${city}, ${state}`);
+              } else if (city && country) {
+                setLocation(`${city}, ${country}`);
+              }
+            }
+          } catch (error) {
+            console.error('Reverse geocoding failed:', error);
+            // Fallback to default
+            setLocation('Boston, MA');
+          }
+          setLocationLoading(false);
+        },
+        (error) => {
+          console.error('Geolocation failed:', error);
+          setLocation('Boston, MA');
+          setLocationLoading(false);
+        },
+        { timeout: 10000 }
+      );
+    } else {
+      // Fallback to IP-based location
+      try {
+        const response = await fetch('https://ipapi.co/json/');
+        const data = await response.json();
+        if (data.city && data.region_code) {
+          setLocation(`${data.city}, ${data.region_code}`);
+        } else {
+          setLocation('Boston, MA');
+        }
+      } catch (error) {
+        console.error('IP location failed:', error);
+        setLocation('Boston, MA');
+      }
+      setLocationLoading(false);
+    }
+  };
+
+  // Handle search with user's location
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
+
+    // Prompt for location if not set
+    if (!location.trim()) {
+      const userLocation = prompt('Please enter your location (e.g., "New York, NY" or "San Francisco, CA"):');
+      if (userLocation) {
+        setLocation(userLocation.trim());
+      } else {
+        alert('Location is required for accurate search results.');
+        return;
+      }
+    }
 
     setLoading(true);
     setSearchResults([]);
@@ -26,7 +103,7 @@ const TruthTable = () => {
     try {
       const params = new URLSearchParams({
         query: searchQuery,
-        location: 'Boston,MA',
+        location: location, // Now uses user's location
         sortBy: filters.sortBy
       });
       
@@ -69,6 +146,7 @@ const TruthTable = () => {
       }
       
       params.append('name', restaurant.name);
+      params.append('location', location); // Include location for context
 
       const response = await fetch(`http://localhost:3001/api/restaurant-analysis?${params}`);
       const data = await response.json();
@@ -240,14 +318,54 @@ const TruthTable = () => {
                 <p className="text-purple-300 text-sm">Intelligent Restaurant Discovery</p>
               </div>
             </div>
+            {location && (
+              <div className="flex items-center space-x-2 text-purple-300">
+                <MapPin className="w-4 h-4" />
+                <span className="text-sm">Searching in {location}</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
       <div className="max-w-7xl mx-auto px-4 py-8">
-        {/* Enhanced Search Section */}
+        {/* Enhanced Search Section with Location */}
         <div className="mb-8">
           <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border border-white/20">
+            {/* Location Input */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Search Location
+              </label>
+              <div className="flex space-x-3">
+                <div className="flex-1 relative">
+                  <MapPin className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input
+                    type="text"
+                    value={location}
+                    onChange={(e) => setLocation(e.target.value)}
+                    placeholder="Enter city, state (e.g., New York, NY)"
+                    className="w-full pl-12 pr-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    disabled={locationLoading}
+                  />
+                  {locationLoading && (
+                    <div className="absolute right-4 top-1/2 transform -translate-y-1/2">
+                      <div className="animate-spin h-4 w-4 border-2 border-purple-500 border-t-transparent rounded-full"></div>
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={detectUserLocation}
+                  disabled={locationLoading}
+                  className="px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-purple-300 hover:bg-white/20 transition-colors duration-200 disabled:opacity-50"
+                  title="Detect my location"
+                >
+                  <Navigation className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Search Input */}
             <div className="flex space-x-4 mb-4">
               <div className="flex-1 relative">
                 <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
@@ -262,8 +380,9 @@ const TruthTable = () => {
               </div>
               <button
                 onClick={handleSearch}
-                disabled={loading}
-                className="px-8 py-4 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl font-semibold hover:from-purple-600 hover:to-pink-600 transform hover:scale-105 transition-all duration-200 disabled:opacity-50"
+                disabled={loading || !location.trim()}
+                className="px-8 py-4 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl font-semibold hover:from-purple-600 hover:to-pink-600 transform hover:scale-105 transition-all duration-200 disabled:opacity-50 disabled:transform-none"
+                title={!location.trim() ? "Please enter a location first" : ""}
               >
                 {loading ? 'Searching...' : 'Search'}
               </button>
@@ -304,6 +423,16 @@ const TruthTable = () => {
                 <option value="price">Best Value</option>
               </select>
             </div>
+
+            {/* Location requirement notice */}
+            {!location.trim() && (
+              <div className="mt-4 p-3 bg-yellow-500/20 border border-yellow-500/30 rounded-lg">
+                <div className="flex items-center text-yellow-300 text-sm">
+                  <AlertCircle className="w-4 h-4 mr-2" />
+                  Location is required for accurate restaurant search results
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -313,7 +442,7 @@ const TruthTable = () => {
             <div className="flex items-center justify-between text-sm">
               <div className="flex items-center space-x-4">
                 <span className="text-gray-300">
-                  Found {searchInsights.totalRestaurants} restaurants
+                  Found {searchInsights.totalRestaurants} restaurants near {location}
                 </span>
                 <span className="text-gray-300">
                   Avg Rating: {searchInsights.averageRating}
@@ -407,7 +536,7 @@ const TruthTable = () => {
             {searchResults.length === 0 && searchQuery && !loading && (
               <div className="text-center py-12 text-gray-400">
                 <Search className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                <p>No restaurants found. Try a different search term.</p>
+                <p>No restaurants found in {location}. Try a different search term or location.</p>
               </div>
             )}
           </div>
