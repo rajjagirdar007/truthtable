@@ -1,79 +1,73 @@
 import React, { useState, useEffect } from 'react';
-import { Search, MapPin, Star, TrendingUp, Clock, Users, Shield } from 'lucide-react';
+import { Search, MapPin, Star, TrendingUp, Clock, Users, Shield, Award, Target, Lightbulb, ThumbsUp, Meh, ThumbsDown, CheckCircle, AlertCircle, Info } from 'lucide-react';
 
 const TruthTable = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [selectedRestaurant, setSelectedRestaurant] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [reviews, setReviews] = useState([]);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
   const [aggregatedScore, setAggregatedScore] = useState(null);
+  const [searchInsights, setSearchInsights] = useState(null);
+  const [filters, setFilters] = useState({
+    priceRange: '',
+    minRating: '',
+    sortBy: 'smart'
+  });
 
-  // Mock data for demonstration (replace with real API calls)
-  const mockRestaurants = [
-    {
-      id: '1',
-      name: 'Osteria Francescana',
-      address: '123 Culinary St, Boston, MA',
-      cuisine: 'Italian',
-      priceLevel: '$$$',
-      location: { lat: 42.3601, lng: -71.0589 }
-    },
-    {
-      id: '2',
-      name: 'Taco Bell Cantina',
-      address: '456 Food Ave, Boston, MA',
-      cuisine: 'Mexican',
-      priceLevel: '$',
-      location: { lat: 42.3505, lng: -71.0743 }
-    },
-    {
-      id: '3',
-      name: 'The Capital Grille',
-      address: '789 Fine Dining Blvd, Boston, MA',
-      cuisine: 'Steakhouse',
-      priceLevel: '$$$$',
-      location: { lat: 42.3584, lng: -71.0598 }
-    }
-  ];
-
-  // Real-time search status
-  const [searchStatus, setSearchStatus] = useState('');
-
-  // Handle search with real API
+  // Handle search with enhanced API
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
 
     setLoading(true);
+    setSearchResults([]);
+    setSearchInsights(null);
+    
     try {
-      const response = await fetch(`http://localhost:3001/api/search-restaurants?query=${encodeURIComponent(searchQuery)}&location=Boston,MA`);
+      const params = new URLSearchParams({
+        query: searchQuery,
+        location: 'Boston,MA',
+        sortBy: filters.sortBy
+      });
+      
+      if (filters.priceRange) params.append('priceRange', filters.priceRange);
+      if (filters.minRating) params.append('minRating', filters.minRating);
+
+      const response = await fetch(`http://localhost:3001/api/search-restaurants?${params}`);
       const data = await response.json();
+      
       setSearchResults(data.restaurants || []);
+      setSearchInsights(data.searchInsights || null);
     } catch (error) {
       console.error('Search error:', error);
-      // Fallback to mock data if API fails
-      const filteredResults = mockRestaurants.filter(restaurant =>
-        restaurant.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        restaurant.cuisine.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-      setSearchResults(filteredResults);
+      setSearchResults([]);
     }
     setLoading(false);
   };
 
-  // Handle restaurant selection with real API
+  // Handle restaurant selection with enhanced API
   const handleRestaurantSelect = async (restaurant) => {
     setSelectedRestaurant(restaurant);
-    setLoading(true);
+    setAnalysisLoading(true);
+    setAggregatedScore(null);
 
     try {
       const params = new URLSearchParams();
-      if (restaurant.id && restaurant.platform !== 'yelp') {
+      
+      // Handle different ID types from merged data
+      if (restaurant.id && restaurant.platform === 'google') {
+        params.append('google_id', restaurant.id);
+      } else if (restaurant.id && restaurant.platform === 'yelp') {
+        params.append('yelp_id', restaurant.id);
+      } else if (restaurant.id) {
+        // For merged restaurants, try to determine the best ID to use
         params.append('google_id', restaurant.id);
       }
-      if (restaurant.id && restaurant.platform === 'yelp') {
-        params.append('yelp_id', restaurant.id);
+      
+      if (restaurant.yelpId) {
+        params.append('yelp_id', restaurant.yelpId);
       }
+      
       params.append('name', restaurant.name);
 
       const response = await fetch(`http://localhost:3001/api/restaurant-analysis?${params}`);
@@ -81,27 +75,14 @@ const TruthTable = () => {
       setAggregatedScore(data);
     } catch (error) {
       console.error('Error loading restaurant data:', error);
-      // Fallback to mock data
-      const mockReviewData = {
-        unifiedScore: 4.2 + Math.random() * 0.8,
-        totalReviews: Math.floor(Math.random() * 200) + 50,
-        confidence: Math.floor(Math.random() * 30) + 70,
-        themes: {
-          food: Math.floor(Math.random() * 50) + 20,
-          service: Math.floor(Math.random() * 40) + 15,
-          ambiance: Math.floor(Math.random() * 30) + 10,
-          value: Math.floor(Math.random() * 25) + 8
-        },
-        recentTrend: ['improving', 'stable', 'declining'][Math.floor(Math.random() * 3)],
-        topReviews: [
-          { rating: 5, text: "Absolutely incredible experience! The pasta was perfectly al dente and the service was impeccable.", platform: 'Google', author: 'Sarah M.' },
-          { rating: 4, text: "Great food and atmosphere. A bit pricey but worth it for special occasions.", platform: 'Yelp', author: 'Mike R.' },
-          { rating: 5, text: "Best Italian restaurant in the city. The chef's special was outstanding!", platform: 'Google', author: 'Lisa K.' }
-        ]
-      };
-      setAggregatedScore(mockReviewData);
+      setAggregatedScore({
+        unifiedScore: 0,
+        totalReviews: 0,
+        confidence: 0,
+        message: 'Unable to load restaurant analysis'
+      });
     }
-    setLoading(false);
+    setAnalysisLoading(false);
   };
 
   const getTrendIcon = (trend) => {
@@ -114,15 +95,141 @@ const TruthTable = () => {
 
   const getScoreColor = (score) => {
     if (score >= 4.5) return 'text-green-400';
+    if (score >= 4.0) return 'text-green-300';
     if (score >= 3.5) return 'text-yellow-400';
+    if (score >= 3.0) return 'text-orange-400';
     return 'text-red-400';
+  };
+
+  const getConfidenceColor = (confidence) => {
+    if (confidence >= 80) return 'text-green-400';
+    if (confidence >= 60) return 'text-yellow-400';
+    return 'text-orange-400';
+  };
+
+  const getPriceColor = (priceLevel) => {
+    const level = typeof priceLevel === 'string' ? priceLevel.length : priceLevel;
+    switch (level) {
+      case 1: return 'text-green-400';
+      case 2: return 'text-yellow-400';
+      case 3: return 'text-orange-400';
+      case 4: return 'text-red-400';
+      default: return 'text-gray-400';
+    }
+  };
+
+  const renderSentimentAnalysis = (sentiment) => {
+    if (!sentiment) return null;
+    
+    return (
+      <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border border-white/20">
+        <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
+          <ThumbsUp className="w-5 h-5 mr-2" />
+          Customer Sentiment
+        </h3>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <ThumbsUp className="w-4 h-4 text-green-400" />
+              <span className="text-gray-300">Positive</span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <div className="w-32 h-3 bg-gray-700 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-green-400 rounded-full"
+                  style={{ width: `${sentiment.positive}%` }}
+                />
+              </div>
+              <span className="text-green-400 font-medium w-12 text-right">{sentiment.positive}%</span>
+            </div>
+          </div>
+          
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <Meh className="w-4 h-4 text-yellow-400" />
+              <span className="text-gray-300">Neutral</span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <div className="w-32 h-3 bg-gray-700 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-yellow-400 rounded-full"
+                  style={{ width: `${sentiment.neutral}%` }}
+                />
+              </div>
+              <span className="text-yellow-400 font-medium w-12 text-right">{sentiment.neutral}%</span>
+            </div>
+          </div>
+          
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <ThumbsDown className="w-4 h-4 text-red-400" />
+              <span className="text-gray-300">Negative</span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <div className="w-32 h-3 bg-gray-700 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-red-400 rounded-full"
+                  style={{ width: `${sentiment.negative}%` }}
+                />
+              </div>
+              <span className="text-red-400 font-medium w-12 text-right">{sentiment.negative}%</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderCompetitiveAnalysis = (analysis) => {
+    if (!analysis) return null;
+    
+    return (
+      <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border border-white/20">
+        <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
+          <Target className="w-5 h-5 mr-2" />
+          Market Position
+        </h3>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <span className="text-gray-300">Category</span>
+            <span className="text-purple-400 font-medium">{analysis.category}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-gray-300">Position</span>
+            <span className="text-white font-medium">{analysis.marketPosition}</span>
+          </div>
+          
+          <div>
+            <p className="text-gray-300 text-sm mb-2">Strengths</p>
+            <div className="flex flex-wrap gap-2">
+              {analysis.strengths?.map((strength, idx) => (
+                <span key={idx} className="px-2 py-1 bg-green-500/20 text-green-300 rounded-full text-xs">
+                  {strength}
+                </span>
+              ))}
+            </div>
+          </div>
+          
+          <div>
+            <p className="text-gray-300 text-sm mb-2">Opportunities</p>
+            <div className="flex flex-wrap gap-2">
+              {analysis.opportunities?.map((opportunity, idx) => (
+                <span key={idx} className="px-2 py-1 bg-yellow-500/20 text-yellow-300 rounded-full text-xs">
+                  {opportunity}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
       {/* Header */}
       <div className="bg-black/20 backdrop-blur-xl border-b border-white/10">
-        <div className="max-w-6xl mx-auto px-4 py-6">
+        <div className="max-w-7xl mx-auto px-4 py-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
               <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl flex items-center justify-center">
@@ -130,18 +237,18 @@ const TruthTable = () => {
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-white">TruthTable</h1>
-                <p className="text-purple-300 text-sm">Unified Restaurant Intelligence</p>
+                <p className="text-purple-300 text-sm">Intelligent Restaurant Discovery</p>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto px-4 py-8">
-        {/* Search Section */}
+      <div className="max-w-7xl mx-auto px-4 py-8">
+        {/* Enhanced Search Section */}
         <div className="mb-8">
           <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border border-white/20">
-            <div className="flex space-x-4">
+            <div className="flex space-x-4 mb-4">
               <div className="flex-1 relative">
                 <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
@@ -161,34 +268,139 @@ const TruthTable = () => {
                 {loading ? 'Searching...' : 'Search'}
               </button>
             </div>
+            
+            {/* Filters */}
+            <div className="flex space-x-4 text-sm">
+              <select
+                value={filters.priceRange}
+                onChange={(e) => setFilters({...filters, priceRange: e.target.value})}
+                className="bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+              >
+                <option value="">Any Price</option>
+                <option value="$">$ - Budget</option>
+                <option value="$$">$$ - Moderate</option>
+                <option value="$$$">$$$ - Expensive</option>
+                <option value="$$$$">$$$$ - Luxury</option>
+              </select>
+              
+              <select
+                value={filters.minRating}
+                onChange={(e) => setFilters({...filters, minRating: e.target.value})}
+                className="bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+              >
+                <option value="">Any Rating</option>
+                <option value="4.0">4.0+ Stars</option>
+                <option value="4.5">4.5+ Stars</option>
+              </select>
+              
+              <select
+                value={filters.sortBy}
+                onChange={(e) => setFilters({...filters, sortBy: e.target.value})}
+                className="bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+              >
+                <option value="smart">Smart Ranking</option>
+                <option value="rating">Highest Rated</option>
+                <option value="distance">Nearest</option>
+                <option value="price">Best Value</option>
+              </select>
+            </div>
           </div>
         </div>
 
+        {/* Search Insights */}
+        {searchInsights && (
+          <div className="mb-6 bg-white/10 backdrop-blur-xl rounded-xl p-4 border border-white/20">
+            <div className="flex items-center justify-between text-sm">
+              <div className="flex items-center space-x-4">
+                <span className="text-gray-300">
+                  Found {searchInsights.totalRestaurants} restaurants
+                </span>
+                <span className="text-gray-300">
+                  Avg Rating: {searchInsights.averageRating}
+                </span>
+              </div>
+              <div className="flex space-x-2">
+                {Object.entries(searchInsights.priceDistribution).map(([price, count]) => (
+                  count > 0 && (
+                    <span key={price} className="px-2 py-1 bg-purple-500/20 text-purple-300 rounded text-xs">
+                      {price} ({count})
+                    </span>
+                  )
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="grid lg:grid-cols-2 gap-8">
-          {/* Search Results */}
+          {/* Enhanced Search Results */}
           <div className="space-y-4">
             <h2 className="text-xl font-semibold text-white mb-4">Search Results</h2>
             {searchResults.map((restaurant) => (
               <div
-                key={restaurant.id}
+                key={`${restaurant.platform}-${restaurant.id}`}
                 onClick={() => handleRestaurantSelect(restaurant)}
                 className="bg-white/10 backdrop-blur-xl rounded-xl p-6 border border-white/20 hover:bg-white/20 cursor-pointer transform hover:scale-105 transition-all duration-200"
               >
                 <div className="flex justify-between items-start mb-3">
                   <h3 className="text-lg font-semibold text-white">{restaurant.name}</h3>
-                  <span className="text-purple-400 font-medium">{restaurant.priceLevel}</span>
+                  <div className="flex items-center space-x-2">
+                    <span className={`font-medium ${getPriceColor(restaurant.priceLevel)}`}>
+                      {restaurant.priceLevel}
+                    </span>
+                    {restaurant.crossPlatformVerified && (
+                      <CheckCircle className="w-4 h-4 text-green-400" />
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center space-x-4 text-gray-300 text-sm">
+                
+                <div className="flex items-center space-x-4 text-gray-300 text-sm mb-3">
                   <div className="flex items-center space-x-1">
                     <MapPin className="w-4 h-4" />
                     <span>{restaurant.address}</span>
                   </div>
+                  {restaurant.rating && (
+                    <div className="flex items-center space-x-1">
+                      <Star className="w-4 h-4 text-yellow-400 fill-current" />
+                      <span>{restaurant.rating}</span>
+                    </div>
+                  )}
                 </div>
-                <div className="mt-2">
-                  <span className="px-3 py-1 bg-purple-500/30 text-purple-200 rounded-full text-xs">
-                    {restaurant.cuisine}
-                  </span>
+                
+                <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap gap-2">
+                    <span className="px-2 py-1 bg-purple-500/30 text-purple-200 rounded-full text-xs">
+                      {restaurant.cuisine}
+                    </span>
+                    {restaurant.cuisineType && (
+                      <span className="px-2 py-1 bg-blue-500/30 text-blue-200 rounded-full text-xs">
+                        {restaurant.cuisineType}
+                      </span>
+                    )}
+                    {restaurant.specialFeatures?.slice(0, 2).map((feature, idx) => (
+                      <span key={idx} className="px-2 py-1 bg-green-500/30 text-green-200 rounded-full text-xs">
+                        {feature.replace('-', ' ')}
+                      </span>
+                    ))}
+                  </div>
+                  
+                  {restaurant.intelligentScore && (
+                    <div className="text-right">
+                      <div className="text-purple-400 font-medium">
+                        Score: {restaurant.intelligentScore}
+                      </div>
+                    </div>
+                  )}
                 </div>
+                
+                {restaurant.recommendationReasons && restaurant.recommendationReasons.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-white/10">
+                    <p className="text-xs text-gray-400 mb-1">Why recommended:</p>
+                    <p className="text-xs text-gray-300">
+                      {restaurant.recommendationReasons.join(' • ')}
+                    </p>
+                  </div>
+                )}
               </div>
             ))}
 
@@ -200,104 +412,180 @@ const TruthTable = () => {
             )}
           </div>
 
-          {/* Restaurant Details */}
+          {/* Enhanced Restaurant Details */}
           <div className="space-y-6">
-            {selectedRestaurant && aggregatedScore && (
+            {selectedRestaurant && (
               <>
-                {/* TruthTable Score */}
-                <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border border-white/20">
-                  <div className="text-center mb-6">
-                    <h2 className="text-2xl font-bold text-white mb-2">{selectedRestaurant.name}</h2>
-                    <div className="flex items-center justify-center space-x-2 text-gray-300">
-                      <MapPin className="w-4 h-4" />
-                      <span>{selectedRestaurant.address}</span>
-                    </div>
+                {analysisLoading ? (
+                  <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-12 border border-white/20 text-center">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500 mx-auto mb-4"></div>
+                    <p className="text-gray-400">Analyzing restaurant data...</p>
                   </div>
-
-                  <div className="grid grid-cols-2 gap-6">
-                    <div className="text-center">
-                      <div className={`text-4xl font-bold ${getScoreColor(aggregatedScore.unifiedScore)} mb-2`}>
-                        {aggregatedScore.unifiedScore.toFixed(1)}
-                      </div>
-                      <div className="flex items-center justify-center space-x-1 mb-1">
-                        {[...Array(5)].map((_, i) => (
-                          <Star
-                            key={i}
-                            className={`w-4 h-4 ${i < Math.floor(aggregatedScore.unifiedScore) ? 'text-yellow-400 fill-current' : 'text-gray-500'}`}
-                          />
-                        ))}
-                      </div>
-                      <p className="text-sm text-gray-400">TruthTable Score</p>
-                    </div>
-
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-gray-300 text-sm">Confidence</span>
-                        <span className="text-green-400 font-medium">{aggregatedScore.confidence}%</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-gray-300 text-sm">Total Reviews</span>
-                        <span className="text-white font-medium">{aggregatedScore.totalReviews}</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-gray-300 text-sm">Trend</span>
-                        <div className="flex items-center space-x-1">
-                          {getTrendIcon(aggregatedScore.recentTrend)}
-                          <span className="text-white text-sm capitalize">{aggregatedScore.recentTrend}</span>
+                ) : aggregatedScore ? (
+                  <>
+                    {/* Enhanced TruthTable Score */}
+                    <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border border-white/20">
+                      <div className="text-center mb-6">
+                        <h2 className="text-2xl font-bold text-white mb-2">{selectedRestaurant.name}</h2>
+                        <div className="flex items-center justify-center space-x-2 text-gray-300 mb-2">
+                          <MapPin className="w-4 h-4" />
+                          <span>{selectedRestaurant.address}</span>
                         </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Review Themes */}
-                <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border border-white/20">
-                  <h3 className="text-lg font-semibold text-white mb-4">What People Talk About</h3>
-                  <div className="space-y-3">
-                    {Object.entries(aggregatedScore.themes).map(([theme, count]) => (
-                      <div key={theme} className="flex items-center justify-between">
-                        <span className="text-gray-300 capitalize">{theme}</span>
-                        <div className="flex items-center space-x-2">
-                          <div className="w-24 h-2 bg-gray-700 rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-gradient-to-r from-purple-500 to-pink-500 rounded-full"
-                              style={{ width: `${Math.min(count / 50 * 100, 100)}%` }}
-                            />
-                          </div>
-                          <span className="text-white text-sm w-8 text-right">{count}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Top Reviews */}
-                <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border border-white/20">
-                  <h3 className="text-lg font-semibold text-white mb-4">Verified Highlights</h3>
-                  <div className="space-y-4">
-                    {aggregatedScore.topReviews.map((review, index) => (
-                      <div key={index} className="bg-white/10 rounded-xl p-4 border border-white/10">
-                        <div className="flex items-start justify-between mb-2">
-                          <div className="flex items-center space-x-2">
-                            <div className="flex items-center">
-                              {[...Array(5)].map((_, i) => (
-                                <Star
-                                  key={i}
-                                  className={`w-3 h-3 ${i < review.rating ? 'text-yellow-400 fill-current' : 'text-gray-500'}`}
-                                />
-                              ))}
-                            </div>
-                            <span className="text-gray-400 text-xs">{review.author}</span>
-                          </div>
-                          <span className="text-xs text-purple-400 bg-purple-500/20 px-2 py-1 rounded">
-                            {review.platform}
+                        <div className="flex items-center justify-center space-x-2">
+                          <span className="text-gray-400 text-sm">Data from {aggregatedScore.platformsUsed} platform(s)</span>
+                          <span className={`text-xs px-2 py-1 rounded-full ${
+                            aggregatedScore.dataQuality === 'high' ? 'bg-green-500/20 text-green-300' :
+                            aggregatedScore.dataQuality === 'medium' ? 'bg-yellow-500/20 text-yellow-300' :
+                            'bg-orange-500/20 text-orange-300'
+                          }`}>
+                            {aggregatedScore.dataQuality} quality
                           </span>
                         </div>
-                        <p className="text-gray-300 text-sm leading-relaxed">{review.text}</p>
                       </div>
-                    ))}
-                  </div>
-                </div>
+
+                      <div className="grid grid-cols-2 gap-6">
+                        <div className="text-center">
+                          <div className={`text-4xl font-bold ${getScoreColor(aggregatedScore.unifiedScore)} mb-2`}>
+                            {aggregatedScore.unifiedScore ? aggregatedScore.unifiedScore.toFixed(1) : 'N/A'}
+                          </div>
+                          <div className="flex items-center justify-center space-x-1 mb-1">
+                            {[...Array(5)].map((_, i) => (
+                              <Star
+                                key={i}
+                                className={`w-4 h-4 ${i < Math.floor(aggregatedScore.unifiedScore) ? 'text-yellow-400 fill-current' : 'text-gray-500'}`}
+                              />
+                            ))}
+                          </div>
+                          <p className="text-sm text-gray-400">TruthTable Score</p>
+                        </div>
+
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-300 text-sm">Confidence</span>
+                            <span className={`font-medium ${getConfidenceColor(aggregatedScore.confidence)}`}>
+                              {aggregatedScore.confidence}%
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-300 text-sm">Total Reviews</span>
+                            <span className="text-white font-medium">{aggregatedScore.totalReviews}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-300 text-sm">Trend</span>
+                            <div className="flex items-center space-x-1">
+                              {getTrendIcon(aggregatedScore.recentTrend)}
+                              <span className="text-white text-sm capitalize">{aggregatedScore.recentTrend}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {aggregatedScore.message && (
+                        <div className="mt-4 p-3 bg-yellow-500/20 border border-yellow-500/30 rounded-lg">
+                          <div className="flex items-center text-yellow-300 text-sm">
+                            <Info className="w-4 h-4 mr-2" />
+                            {aggregatedScore.message}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Enhanced Review Themes */}
+                    {aggregatedScore.themes && (
+                      <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border border-white/20">
+                        <h3 className="text-lg font-semibold text-white mb-4">What People Talk About</h3>
+                        <div className="space-y-4">
+                          {Object.entries(aggregatedScore.themes).map(([theme, data]) => {
+                            const themeData = typeof data === 'object' ? data : { mentions: data, score: 0 };
+                            const maxMentions = Math.max(...Object.values(aggregatedScore.themes).map(t => 
+                              typeof t === 'object' ? t.mentions : t
+                            ));
+                            
+                            return (
+                              <div key={theme} className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-gray-300 capitalize">{theme}</span>
+                                  <div className="flex items-center space-x-2">
+                                    {themeData.score > 0 && (
+                                      <span className={`text-sm ${getScoreColor(themeData.score)}`}>
+                                        {themeData.score.toFixed(1)}★
+                                      </span>
+                                    )}
+                                    <span className="text-white text-sm">
+                                      {themeData.mentions} mentions
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
+                                  <div
+                                    className="h-full bg-gradient-to-r from-purple-500 to-pink-500 rounded-full"
+                                    style={{ width: `${(themeData.mentions / maxMentions) * 100}%` }}
+                                  />
+                                </div>
+                                {themeData.keywords && themeData.keywords.length > 0 && (
+                                  <div className="flex flex-wrap gap-1 mt-1">
+                                    {themeData.keywords.slice(0, 3).map((keyword, idx) => (
+                                      <span key={idx} className="text-xs px-2 py-1 bg-gray-700 text-gray-300 rounded">
+                                        {keyword}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Sentiment Analysis */}
+                    {aggregatedScore.sentimentAnalysis && renderSentimentAnalysis(aggregatedScore.sentimentAnalysis)}
+
+                    {/* Top Reviews */}
+                    {aggregatedScore.topReviews && aggregatedScore.topReviews.length > 0 && (
+                      <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border border-white/20">
+                        <h3 className="text-lg font-semibold text-white mb-4">Verified Highlights</h3>
+                        <div className="space-y-4">
+                          {aggregatedScore.topReviews.map((review, index) => (
+                            <div key={index} className="bg-white/10 rounded-xl p-4 border border-white/10">
+                              <div className="flex items-start justify-between mb-2">
+                                <div className="flex items-center space-x-2">
+                                  <div className="flex items-center">
+                                    {[...Array(5)].map((_, i) => (
+                                      <Star
+                                        key={i}
+                                        className={`w-3 h-3 ${i < review.rating ? 'text-yellow-400 fill-current' : 'text-gray-500'}`}
+                                      />
+                                    ))}
+                                  </div>
+                                  <span className="text-gray-400 text-xs">{review.author}</span>
+                                  {review.sentiment && (
+                                    <span className={`text-xs px-2 py-1 rounded-full ${
+                                      review.sentiment === 'positive' ? 'bg-green-500/20 text-green-300' :
+                                      review.sentiment === 'negative' ? 'bg-red-500/20 text-red-300' :
+                                      'bg-yellow-500/20 text-yellow-300'
+                                    }`}>
+                                      {review.sentiment}
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="text-xs text-purple-400 bg-purple-500/20 px-2 py-1 rounded">
+                                  {review.platform}
+                                </span>
+                              </div>
+                              <p className="text-gray-300 text-sm leading-relaxed line-clamp-4">
+                                {review.text}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Competitive Analysis */}
+                    {aggregatedScore.competitiveAnalysis && renderCompetitiveAnalysis(aggregatedScore.competitiveAnalysis)}
+                  </>
+                ) : null}
               </>
             )}
 
